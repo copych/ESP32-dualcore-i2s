@@ -6,3 +6,5 @@ This sketch creates 2 tasks -- one for each core. Each task generates a Sin() si
 Sampling rate is 44100Hz, samples are 16bit stereo.
 
 Project was compiled in ArduinoIDE with ESP core 2.0.5.
+
+Initial code was taken from here: https://github.com/infrasonicaudio/esp32-i2s-synth-example
