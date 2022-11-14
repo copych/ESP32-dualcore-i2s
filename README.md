@@ -1,7 +1,7 @@
 # ESP32-dualcore-i2s
 Proof of concept for ESP32 dual core multithread sound synthezis.
 
-This sketch creates 2 tasks -- one for each of two Xtensa LX6 cores. Each task generates a Sin() signal of a given frequency. One of the tasks then sums the buffers and writes the result to i2s DMA buffer. Data safety is based on a binary semaphore. TODO using xTaskNotify.
+This sketch creates 2 tasks -- one for each of two Xtensa LX6 cores. Each task generates a Sin() signal of a given frequency. One of the tasks then sums the buffers and writes the result to i2s DMA buffer. Data safety is based on a xTaskNotifyGive() / ulTaskNotifyTake().
 
 Sampling rate is 44100Hz, samples are 16bit stereo.
 
