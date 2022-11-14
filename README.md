@@ -7,4 +7,6 @@ Sampling rate is 44100Hz, samples are 16bit stereo.
 
 Project was compiled in ArduinoIDE with ESP core 2.0.5.
 
-Initial code for a single core was taken from here: https://github.com/infrasonicaudio/esp32-i2s-synth-example
+Hardware is ESP32 DevKit with a PCM5102 extenal DAC connected to GPIOs 5, 18 and 19.
+
+Initial code for a single core and internal DAC was taken from here: https://github.com/infrasonicaudio/esp32-i2s-synth-example
