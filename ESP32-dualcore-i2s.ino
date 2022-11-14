@@ -17,20 +17,18 @@ const i2s_port_t i2s_num = I2S_NUM_0; // i2s port number
 
 TaskHandle_t Task0;
 TaskHandle_t Task1;
-SemaphoreHandle_t xSemaphore = NULL;
 
 // Accumulated phase
 static float p1 = 0.0f;
 static float p2 = 0.0f;
 
 // Output buffers (2ch interleaved)
- static uint16_t out_buf0[DMA_BUF_LEN * 2];
- static uint16_t out_buf1[DMA_BUF_LEN * 2];
+static uint16_t out_buf0[DMA_BUF_LEN * 2];
+static uint16_t out_buf1[DMA_BUF_LEN * 2];
 
 
-static void write_buffer0() {
+static void synth0() {
     float samp = 0.0f;
-    size_t bytes_written;
 
     for (int i=0; i < DMA_BUF_LEN; i++) {
       samp = (sinf(p1)+1.0f) * 4000; 
@@ -38,71 +36,62 @@ static void write_buffer0() {
       // Increment and wrap phase
       p1 += PHASE_INC1;
       if (p1 >= TWOPI) {
-        p1 -= TWOPI ;
-      }
-      
-      out_buf0[i*2] = (uint16_t)(samp * 0.6f);
-      out_buf0[i*2+1] = (uint16_t)(samp * 0.4f);
+          p1 -= TWOPI ;
+      }      
+      out_buf0[i*2] = (uint16_t)(samp * 0.8f);
+      out_buf0[i*2+1] = (uint16_t)(samp * 0.2f);
     }
-    
-      // See if we can obtain the semaphore.  If the semaphore is not available
-      // wait 10 ticks to see if it becomes free.
-      while ( xSemaphoreTake( xSemaphore, ( TickType_t ) 1 ) != pdTRUE ) {
-       // taskYIELD();
-      }
-      // We were able to obtain the semaphore and can now access the
-      // shared resource.
-      for (int i=0; i < DMA_BUF_LEN; i++) { // sum buffers and output the result
-        out_buf0[i*2] += out_buf1[i*2];
-        out_buf0[i*2+1] += out_buf1[i*2+1] ;
-      }
-    // We have finished accessing the shared resource.  Release the
-    // semaphore.
-    
-    // now out_buf0 is ready
-    i2s_write(i2s_num, out_buf0, sizeof(out_buf0), &bytes_written, portMAX_DELAY);
-    
-    xSemaphoreGive( xSemaphore );  
-
 }
 
-
-static void write_buffer1()
-{
-    while ( xSemaphoreTake( xSemaphore, ( TickType_t ) 1 ) != pdTRUE ) {
-     // taskYIELD();
-    }
+static void synth1() {
     float samp = 0.0f;
-    size_t bytes_written;
 
     for (int i=0; i < DMA_BUF_LEN; i++) {
         samp = (sinf(p2)+1.0f) * 4000; 
 
         // Increment and wrap phase
         p2 += PHASE_INC2;
-        if (p2 >= TWOPI)
+        if (p2 >= TWOPI) {
             p2 -= TWOPI ;
+        }
+        out_buf1[i*2] = (uint16_t)(samp * 0.2f);
+        out_buf1[i*2+1] = (uint16_t)(samp * 0.8f);
+    }
+}
+
+static void mixer() { // sum buffers and output the result
+    size_t bytes_written;
+    for (int i=0; i < DMA_BUF_LEN; i++) { 
+        out_buf0[i*2] += out_buf1[i*2];
+        out_buf0[i*2+1] += out_buf1[i*2+1] ;
+    }
+    
+    // now out_buf0 is ready, output
+    i2s_write(i2s_num, out_buf0, sizeof(out_buf0), &bytes_written, portMAX_DELAY);
+}
+
+// Core0 task
+static void audio_task0(void *userData) {
+    while(1) {
+        // this part of the code never intersects with mixer()
+        synth0();
         
-        out_buf1[i*2] = (uint16_t)(samp * 0.4f);
-        out_buf1[i*2+1] = (uint16_t)(samp * 0.6f);
-    }
-    xSemaphoreGive( xSemaphore );
-
-    taskYIELD();
-}
-
-static void audio_task0(void *userData)
-{
-    vSemaphoreCreateBinary( xSemaphore );
-    while(1) {
-        write_buffer0();
+        // this part of the code is operating with shared resources, so we should make it safe
+        if (ulTaskNotifyTake(pdTRUE, portMAX_DELAY)){
+            mixer();
+            xTaskNotifyGive(Task1);
+        }
     }
 }
 
-static void audio_task1(void *userData)
-{
+// task for Core1, which tipically runs user's code on ESP32
+static void audio_task1(void *userData) {
     while(1) {
-        write_buffer1();
+        // we can run it together with synth0(), but not with mixer()
+        if (ulTaskNotifyTake(pdTRUE, portMAX_DELAY)) {
+            synth1();
+            xTaskNotifyGive(Task0);
+        }
     }
 }
 
@@ -117,7 +106,7 @@ void setup(void)
       .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
       .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
       .communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_STAND_I2S | I2S_COMM_FORMAT_STAND_I2S),
-    
+      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL2,
       .dma_buf_count = DMA_NUM_BUF,
       .dma_buf_len = DMA_BUF_LEN,
       .use_apll = false,
@@ -139,7 +128,7 @@ void setup(void)
                   1024,         // stack size 
                   NULL,         // params 
                   1,            // priority 
-                  &Task0,       // descriptor 
+                  &Task0,       // handle 
                   0);           // Core ID 
                       
   xTaskCreatePinnedToCore(
@@ -148,11 +137,17 @@ void setup(void)
                   1024,         // stack size 
                   NULL,         // params 
                   1,            // priority 
-                  &Task1,       // descriptor 
+                  &Task1,       // handle 
                   1);           // Core ID 
+
+  // somehow we should allow tasks to run
+  xTaskNotifyGive(Task0);
+  xTaskNotifyGive(Task1);
      
 }
 
 void loop() {
+  // you can still place some of your code here
+  // or vTaskDelete();
   taskYIELD();
 }
