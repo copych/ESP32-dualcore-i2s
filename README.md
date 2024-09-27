@@ -1,5 +1,5 @@
 # ESP32 multitasking dual core sound synthesis
-Proof of concept for ESP32 dual core multithread sound synthezis.
+Proof of concept for ESP32 dual core multithread sound synthesis.
 
 This sketch creates 2 tasks -- one for each of two Xtensa LX6 cores. Each task generates a Sin() signal of a given frequency. One of the tasks then sums the buffers and writes the result to i2s DMA buffer. Data safety is based on a xTaskNotifyGive() / ulTaskNotifyTake().
 
